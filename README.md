@@ -1,10 +1,10 @@
 # ChatBI - Data Intelligence Platform 
 
-ChatBI is an AI-powered data intelligence platform that enables natural language interaction with your databases. Built with modern Python technologies including LangChain, FastAPI, Streamlit, and the Model Context Protocol (MCP).
+ChatBI is an AI-powered data intelligence platform that enables natural language interaction with databases. Built with modern Python technologies including LangChain, FastAPI, Streamlit, and the Model Context Protocol (MCP).
 
 ## ✨ Features
 
-- **Natural Language Queries**: Ask questions about your data in plain language
+- **Natural Language Queries**: Ask questions about data in plain language
 - **AI-Powered SQL Generation**: Automatically generate SQL queries from natural language
 - **Interactive Visualizations**: Create charts and dashboards with AI recommendations
 - **Data Analysis**: Comprehensive analysis including correlations, trends, and anomalies
@@ -25,7 +25,7 @@ ChatBI is an AI-powered data intelligence platform that enables natural language
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/easy-chatbi.git
+git clone https://github.com/wangzhiqun/easy-chatbi.git
 cd easy-chatbi
 ```
 
@@ -36,9 +36,9 @@ python scripts/setup.py
 
 3. **Configure environment variables**
 
-Edit `.env` file with your settings:
+Edit `.env` file with settings:
 ```env
-OPENAI_API_KEY=your_openai_api_key_here
+OPENAI_API_KEY=openai_api_key
 MYSQL_HOST=localhost
 MYSQL_PORT=3306
 MYSQL_DATABASE=chatbi
@@ -101,7 +101,7 @@ MILVUS_PORT=19530
 
 ```env
 # OpenAI
-OPENAI_API_KEY=your_key_here
+OPENAI_API_KEY=openai_api_key
 OPENAI_MODEL=gpt-4o-mini
 
 # Generation settings
