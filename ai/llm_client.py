@@ -1,362 +1,239 @@
-"""
-LLM client for ChatBI platform.
-Handles communication with OpenAI and other language models using LangChain.
-"""
+from typing import List, Dict, Optional, Iterator, AsyncIterator
 
-from typing import Optional, Dict, Any, List
+from langchain.callbacks.streaming_stdout import StreamingStdOutCallbackHandler
+from langchain.schema import BaseMessage, SystemMessage, HumanMessage, AIMessage
+from langchain_core.language_models import BaseLanguageModel
 from langchain_openai import ChatOpenAI
-from langchain.schema import HumanMessage, SystemMessage, AIMessage
-from langchain.callbacks import get_openai_callback
-import asyncio
 
-from utils.config import settings, get_openai_config
-from utils.logger import get_logger
-from utils.exceptions import LLMException, ErrorCodes
-
-logger = get_logger(__name__)
+from utils import get_config, logger, AIError
 
 
 class LLMClient:
-    """Client for interacting with Large Language Models."""
 
-    def __init__(self):
-        """Initialize LLM client with OpenAI configuration."""
-        self.config = get_openai_config()
-        self.client = None
-        self._initialize_client()
+    def __init__(self, streaming: bool = False):
+        self.config = get_config()
+        self.streaming = streaming
 
-    def _initialize_client(self):
-        """Initialize the OpenAI client."""
-        try:
-            self.client = ChatOpenAI(
-                api_key=self.config["api_key"],
-                model=self.config["model"],
-                temperature=0.1,  # Low temperature for consistent SQL generation
-                max_tokens=2000,
-                timeout=30,
-                max_retries=3
-            )
-            logger.info(f"LLM client initialized with model: {self.config['model']}")
-        except Exception as e:
-            logger.error(f"Failed to initialize LLM client: {e}")
-            raise LLMException(
-                "Failed to initialize LLM client",
-                ErrorCodes.LLM_API_ERROR,
-                str(e)
-            )
+        callbacks = [StreamingStdOutCallbackHandler()] if streaming else []
 
-    async def generate_sql(
+        self.llm = ChatOpenAI(
+            api_key=self.config.openai_api_key,
+            model=self.config.openai_model,
+            temperature=0.7,
+            max_tokens=2000,
+            callbacks=callbacks,
+            streaming=streaming
+        )
+
+        logger.info(f"Initialized LLM client with model: {self.config.openai_model}")
+
+    def get_llm(self) -> BaseLanguageModel:
+        return self.llm
+
+    def generate(
             self,
-            user_question: str,
-            table_schemas: List[Dict[str, Any]],
-            conversation_history: Optional[List[Dict[str, str]]] = None
-    ) -> Dict[str, Any]:
-        """
-        Generate SQL query from natural language question.
-
-        Args:
-            user_question: User's natural language question
-            table_schemas: List of available table schemas
-            conversation_history: Previous conversation context
-
-        Returns:
-            Dictionary containing generated SQL and metadata
-        """
-        try:
-            # Build context about available tables
-            schema_context = self._build_schema_context(table_schemas)
-
-            # Build conversation context
-            messages = self._build_messages_for_sql(
-                user_question=user_question,
-                schema_context=schema_context,
-                conversation_history=conversation_history
-            )
-
-            # Generate SQL using LLM
-            with get_openai_callback() as cb:
-                response = await self.client.ainvoke(messages)
-
-                # Extract SQL from response
-                sql_query = self._extract_sql_from_response(response.content)
-
-                return {
-                    "sql_query": sql_query,
-                    "explanation": self._extract_explanation_from_response(response.content),
-                    "confidence": self._assess_confidence(response.content),
-                    "tokens_used": cb.total_tokens,
-                    "cost": cb.total_cost
-                }
-
-        except Exception as e:
-            logger.error(f"SQL generation failed: {e}")
-            raise LLMException(
-                "Failed to generate SQL query",
-                ErrorCodes.LLM_API_ERROR,
-                str(e)
-            )
-
-    async def suggest_chart_type(
-            self,
-            sql_query: str,
-            sample_data: List[Dict[str, Any]],
-            user_question: str
-    ) -> Dict[str, Any]:
-        """
-        Suggest appropriate chart type for the data.
-
-        Args:
-            sql_query: The SQL query that generated the data
-            sample_data: Sample of the query results
-            user_question: Original user question
-
-        Returns:
-            Chart suggestion with configuration
-        """
-        try:
-            messages = self._build_messages_for_chart_suggestion(
-                sql_query=sql_query,
-                sample_data=sample_data,
-                user_question=user_question
-            )
-
-            with get_openai_callback() as cb:
-                response = await self.client.ainvoke(messages)
-
-                chart_suggestion = self._parse_chart_suggestion(response.content)
-
-                return {
-                    "chart_type": chart_suggestion.get("chart_type", "bar"),
-                    "x_axis": chart_suggestion.get("x_axis"),
-                    "y_axis": chart_suggestion.get("y_axis"),
-                    "title": chart_suggestion.get("title"),
-                    "explanation": chart_suggestion.get("explanation"),
-                    "tokens_used": cb.total_tokens
-                }
-
-        except Exception as e:
-            logger.error(f"Chart suggestion failed: {e}")
-            return {
-                "chart_type": "bar",
-                "explanation": "Could not generate chart suggestion",
-                "error": str(e)
-            }
-
-    async def explain_results(
-            self,
-            user_question: str,
-            sql_query: str,
-            results: List[Dict[str, Any]]
+            prompt: str,
+            system_prompt: Optional[str] = None,
+            history: Optional[List[BaseMessage]] = None,
+            stream: bool = False,
+            **kwargs
     ) -> str:
-        """
-        Generate natural language explanation of query results.
-
-        Args:
-            user_question: Original user question
-            sql_query: Generated SQL query
-            results: Query results
-
-        Returns:
-            Natural language explanation
-        """
         try:
-            messages = self._build_messages_for_explanation(
-                user_question=user_question,
-                sql_query=sql_query,
-                results=results
-            )
+            # messages = []
+            #
+            # # Add system message if provided
+            # if system_prompt:
+            #     messages.append(SystemMessage(content=system_prompt))
+            #
+            # # Add conversation history
+            # if history:
+            #     messages.extend(history)
+            #
+            # # Add current user message
+            # messages.append(HumanMessage(content=prompt))
+            #
+            # # Generate response
+            # response = self.llm.invoke(messages, **kwargs)
+            #
+            # logger.info(f"Generated response with {len(response.content)} characters")
+            # return response.content
 
-            response = await self.client.ainvoke(messages)
-            return response.content
+            messages = self._build_messages(prompt, system_prompt, history)
+
+            if stream:
+                return self._stream_response(messages, **kwargs)
+            else:
+                return self._generate_response(messages, **kwargs)
 
         except Exception as e:
-            logger.error(f"Result explanation failed: {e}")
-            return "I found some results for your query, but couldn't generate a detailed explanation."
+            logger.error(f"LLM generation failed: {str(e)}")
+            raise AIError(f"LLM generation failed: {str(e)}")
 
-    def _build_schema_context(self, table_schemas: List[Dict[str, Any]]) -> str:
-        """Build context string describing available tables."""
-        schema_parts = []
-
-        for schema in table_schemas:
-            table_name = schema.get("name", "unknown")
-            columns = schema.get("columns", [])
-
-            column_descriptions = []
-            for col in columns:
-                col_desc = f"{col['name']} ({col['type']})"
-                if col.get('primary_key'):
-                    col_desc += " [PK]"
-                column_descriptions.append(col_desc)
-
-            schema_parts.append(
-                f"Table: {table_name}\n"
-                f"Columns: {', '.join(column_descriptions)}\n"
-            )
-
-        return "\n".join(schema_parts)
-
-    def _build_messages_for_sql(
+    async def agenerate(
             self,
-            user_question: str,
-            schema_context: str,
-            conversation_history: Optional[List[Dict[str, str]]] = None
-    ) -> List:
-        """Build message list for SQL generation."""
-        system_prompt = f"""You are an expert SQL analyst. Generate accurate SQL queries based on user questions.
+            prompt: str,
+            system_prompt: Optional[str] = None,
+            history: Optional[List[BaseMessage]] = None,
+            stream: bool = False,
+            **kwargs
+    ) -> str:
+        try:
+            # messages = []
+            #
+            # if system_prompt:
+            #     messages.append(SystemMessage(content=system_prompt))
+            #
+            # if history:
+            #     messages.extend(history)
+            #
+            # messages.append(HumanMessage(content=prompt))
+            #
+            # # Async generation
+            # response = await self.llm.ainvoke(messages, **kwargs)
+            #
+            # logger.info(f"Generated async response with {len(response.content)} characters")
+            # return response.content
 
-Available database schema:
-{schema_context}
+            messages = self._build_messages(prompt, system_prompt, history)
 
-Rules:
-1. Generate only valid SQL SELECT statements
-2. Use proper table and column names from the schema
-3. Include appropriate WHERE clauses, JOINs, and aggregations
-4. Always use LIMIT to prevent large result sets (default: LIMIT 100)
-5. Return only the SQL query, no explanations unless asked
-6. For date/time queries, use appropriate date functions
-7. Handle case-insensitive searches when appropriate
+            if stream:
+                return self._astream_response(messages, **kwargs)
+            else:
+                return await self._agenerate_response(messages, **kwargs)
 
-Format your response as:
-```sql
-[SQL QUERY HERE]
-```
+        except Exception as e:
+            logger.error(f"Async LLM generation failed: {str(e)}")
+            raise AIError(f"Async LLM generation failed: {str(e)}")
 
-Explanation: [Brief explanation of the query logic]"""
+    def chat(
+            self,
+            messages: List[Dict[str, str]],
+            system_prompt: Optional[str] = None,
+            stream: bool = False,
+            **kwargs
+    ) -> str:
+        try:
+            # Convert message dicts to LangChain messages
+            # lc_messages = []
+            #
+            # if system_prompt:
+            #     lc_messages.append(SystemMessage(content=system_prompt))
+            #
+            # for msg in messages:
+            #     role = msg.get('role', 'user')
+            #     content = msg.get('content', '')
+            #
+            #     if role == 'system':
+            #         lc_messages.append(SystemMessage(content=content))
+            #     elif role == 'assistant':
+            #         lc_messages.append(AIMessage(content=content))
+            #     else:  # user
+            #         lc_messages.append(HumanMessage(content=content))
+            #
+            # # Generate response
+            # response = self.llm.invoke(lc_messages, **kwargs)
+            #
+            # return response.content
 
-        messages = [SystemMessage(content=system_prompt)]
+            lc_messages = self._convert_messages(messages, system_prompt)
 
-        # Add conversation history if provided
-        if conversation_history:
-            for msg in conversation_history[-5:]:  # Last 5 messages for context
-                if msg.get("role") == "user":
-                    messages.append(HumanMessage(content=msg["content"]))
-                elif msg.get("role") == "assistant":
-                    messages.append(AIMessage(content=msg["content"]))
+            if stream:
+                return self._stream_response(lc_messages, **kwargs)
+            else:
+                return self._generate_response(lc_messages, **kwargs)
 
-        # Add current question
-        messages.append(HumanMessage(content=user_question))
+        except Exception as e:
+            logger.error(f"Chat generation failed: {str(e)}")
+            raise AIError(f"Chat generation failed: {str(e)}")
 
+    def set_model(self, model_name: str):
+        self.llm.model_name = model_name
+        logger.info(f"Changed LLM model to: {model_name}")
+
+    def set_temperature(self, temperature: float):
+        self.llm.temperature = max(0.0, min(1.0, temperature))
+        logger.info(f"Set temperature to: {self.llm.temperature}")
+
+    def set_max_tokens(self, max_tokens: int):
+        self.llm.max_tokens = max_tokens
+        logger.info(f"Set max_tokens to: {max_tokens}")
+
+    def _build_messages(
+            self,
+            prompt: str,
+            system_prompt: Optional[str],
+            history: Optional[List[BaseMessage]]
+    ) -> List[BaseMessage]:
+        messages = []
+
+        if system_prompt:
+            messages.append(SystemMessage(content=system_prompt))
+
+        if history:
+            messages.extend(history)
+
+        messages.append(HumanMessage(content=prompt))
         return messages
 
-    def _build_messages_for_chart_suggestion(
+    def _convert_messages(
             self,
-            sql_query: str,
-            sample_data: List[Dict[str, Any]],
-            user_question: str
-    ) -> List:
-        """Build messages for chart type suggestion."""
-        data_preview = str(sample_data[:3]) if sample_data else "No data"
+            messages: List[Dict[str, str]],
+            system_prompt: Optional[str]
+    ) -> List[BaseMessage]:
+        lc_messages = []
 
-        system_prompt = f"""You are a data visualization expert. Suggest the best chart type for the given data.
+        if system_prompt:
+            lc_messages.append(SystemMessage(content=system_prompt))
 
-User Question: {user_question}
-SQL Query: {sql_query}
-Sample Data: {data_preview}
+        for msg in messages:
+            role = msg.get('role', 'user')
+            content = msg.get('content', '')
 
-Available chart types: bar, line, pie, scatter, area, histogram
+            if role == 'system':
+                lc_messages.append(SystemMessage(content=content))
+            elif role == 'assistant':
+                lc_messages.append(AIMessage(content=content))
+            else:  # user
+                lc_messages.append(HumanMessage(content=content))
 
-Respond in this format:
-Chart Type: [chart_type]
-X-Axis: [column_name]
-Y-Axis: [column_name or list of columns]
-Title: [suggested_title]
-Explanation: [why this chart type is appropriate]"""
+        return lc_messages
 
-        return [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content="Please suggest the best visualization for this data.")
-        ]
+    def _generate_response(self, messages: List[BaseMessage], **kwargs) -> str:
+        response = self.llm.invoke(messages, **kwargs)
+        logger.info(f"Generated response with {len(response.content)} characters")
+        return response.content
 
-    def _build_messages_for_explanation(
-            self,
-            user_question: str,
-            sql_query: str,
-            results: List[Dict[str, Any]]
-    ) -> List:
-        """Build messages for result explanation."""
-        result_summary = f"Found {len(results)} results" if results else "No results found"
-        sample_results = str(results[:3]) if results else "No data"
+    def _stream_response(self, messages: List[BaseMessage], **kwargs) -> Iterator[str]:
+        try:
+            total_chars = 0
 
-        system_prompt = f"""You are a data analyst explaining query results to business users.
+            for chunk in self.llm.stream(messages, **kwargs):
+                if chunk.content:
+                    total_chars += len(chunk.content)
+                    yield chunk.content
 
-User Question: {user_question}
-SQL Query: {sql_query}
-Results Summary: {result_summary}
-Sample Results: {sample_results}
+            logger.info(f"Streaming completed: {total_chars} characters")
 
-Provide a clear, business-friendly explanation of the results. Include:
-1. What the data shows
-2. Key insights or patterns
-3. Answer to the user's question
-4. Any limitations or caveats
+        except Exception as e:
+            logger.error(f"Streaming failed: {str(e)}")
+            yield f"\n\n[Error: {str(e)}]"
 
-Keep the explanation concise and non-technical."""
+    async def _agenerate_response(self, messages: List[BaseMessage], **kwargs) -> str:
+        response = await self.llm.ainvoke(messages, **kwargs)
+        logger.info(f"Generated async response with {len(response.content)} characters")
+        return response.content
 
-        return [
-            SystemMessage(content=system_prompt),
-            HumanMessage(content="Please explain these results.")
-        ]
+    async def _astream_response(self, messages: List[BaseMessage], **kwargs) -> AsyncIterator[str]:
+        try:
+            total_chars = 0
 
-    def _extract_sql_from_response(self, response: str) -> str:
-        """Extract SQL query from LLM response."""
-        # Look for SQL code blocks
-        if "```sql" in response:
-            start = response.find("```sql") + 6
-            end = response.find("```", start)
-            if end != -1:
-                return response[start:end].strip()
+            async for chunk in self.llm.astream(messages, **kwargs):
+                if chunk.content:
+                    total_chars += len(chunk.content)
+                    yield chunk.content
 
-        # Look for SQL statements (fallback)
-        lines = response.split('\n')
-        sql_lines = []
-        in_sql = False
+            logger.info(f"Async streaming completed: {total_chars} characters")
 
-        for line in lines:
-            line = line.strip()
-            if line.upper().startswith('SELECT'):
-                in_sql = True
-            if in_sql:
-                sql_lines.append(line)
-                if line.endswith(';'):
-                    break
-
-        return '\n'.join(sql_lines).replace(';', '').strip()
-
-    def _extract_explanation_from_response(self, response: str) -> str:
-        """Extract explanation from LLM response."""
-        if "Explanation:" in response:
-            return response.split("Explanation:")[-1].strip()
-        return ""
-
-    def _assess_confidence(self, response: str) -> float:
-        """Assess confidence level of the response."""
-        # Simple heuristic based on response characteristics
-        confidence = 0.8  # Default confidence
-
-        if "```sql" in response:
-            confidence += 0.1
-        if "Explanation:" in response:
-            confidence += 0.05
-        if any(word in response.lower() for word in ["uncertain", "might", "possibly"]):
-            confidence -= 0.2
-
-        return min(max(confidence, 0.0), 1.0)
-
-    def _parse_chart_suggestion(self, response: str) -> Dict[str, Any]:
-        """Parse chart suggestion from LLM response."""
-        suggestion = {}
-
-        for line in response.split('\n'):
-            line = line.strip()
-            if line.startswith("Chart Type:"):
-                suggestion["chart_type"] = line.split(":", 1)[1].strip().lower()
-            elif line.startswith("X-Axis:"):
-                suggestion["x_axis"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Y-Axis:"):
-                suggestion["y_axis"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Title:"):
-                suggestion["title"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Explanation:"):
-                suggestion["explanation"] = line.split(":", 1)[1].strip()
-
-        return suggestion
+        except Exception as e:
+            logger.error(f"Async streaming failed: {str(e)}")
+            yield f"\n\n[Error: {str(e)}]"

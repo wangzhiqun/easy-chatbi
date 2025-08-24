@@ -1,595 +1,560 @@
-"""
-Helper utilities for ChatBI Streamlit interface.
-Common functions for session management, authentication, and UI utilities.
-"""
-
-import streamlit as st
-import pandas as pd
-from typing import Dict, Any, Optional, List, Tuple
-import asyncio
+import json
 from datetime import datetime
-import re
+from typing import Dict, Any, List, Optional
 
-from .api_client import APIClient, authenticate_user, logout_user
+import numpy as np
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 
 
-def initialize_session_state():
-    """Initialize Streamlit session state with default values."""
+def load_sample_data() -> pd.DataFrame:
+    try:
+        df = pd.read_csv('data/sample.csv')
+    except:
 
-    # Authentication state
-    if 'authenticated' not in st.session_state:
-        st.session_state.authenticated = False
+        dates = pd.date_range(start='2024-01-01', periods=30, freq='D')
 
-    if 'user' not in st.session_state:
-        st.session_state.user = None
-
-    if 'auth_token' not in st.session_state:
-        st.session_state.auth_token = None
-
-    # Chat state
-    if 'messages' not in st.session_state:
-        st.session_state.messages = []
-
-    if 'current_session_id' not in st.session_state:
-        st.session_state.current_session_id = None
-
-    # UI state
-    if 'page_config' not in st.session_state:
-        st.session_state.page_config = {
-            'theme': 'auto',
-            'show_sql': True,
-            'auto_execute': True,
-            'max_results': 100
+        data = {
+            'date': dates,
+            'product': np.random.choice(['Laptop', 'Mouse', 'Keyboard', 'Monitor'], 30),
+            'category': np.random.choice(['Electronics', 'Accessories'], 30),
+            'quantity': np.random.randint(1, 50, 30),
+            'revenue': np.random.uniform(100, 5000, 30).round(2),
+            'region': np.random.choice(['North', 'South', 'East', 'West'], 30)
         }
 
-    # Cache for API responses
-    if 'api_cache' not in st.session_state:
-        st.session_state.api_cache = {}
+        df = pd.DataFrame(data)
+
+    return df
 
 
-def handle_authentication() -> bool:
-    """
-    Handle user authentication flow.
+def save_conversation(conversation_id: str, messages: List[Dict[str, Any]]) -> bool:
+    import streamlit as st
+    try:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"chat_{conversation_id}_{timestamp}.json"
 
-    Returns:
-        True if user is authenticated, False otherwise
-    """
+        conversation_data = {
+            "conversation_id": conversation_id,
+            "messages": messages,
+            "timestamp": timestamp
+        }
 
-    # Check if already authenticated
-    if st.session_state.get('authenticated', False):
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(conversation_data, f, indent=2, ensure_ascii=False)
+
         return True
-
-    # Show authentication UI
-    return render_authentication_ui()
-
-
-def render_authentication_ui() -> bool:
-    """Render authentication UI and handle login/register."""
-
-    st.title("🔐 ChatBI Login")
-    st.markdown("Please log in to access the ChatBI platform.")
-
-    # Create tabs for login and register
-    tab1, tab2 = st.tabs(["🔑 Login", "📝 Register"])
-
-    with tab1:
-        return render_login_form()
-
-    with tab2:
-        return render_register_form()
-
-
-def render_login_form() -> bool:
-    """Render login form and handle authentication."""
-
-    with st.form("login_form"):
-        st.subheader("Welcome Back!")
-
-        username = st.text_input("Username", placeholder="Enter your username")
-        password = st.text_input("Password", type="password", placeholder="Enter your password")
-
-        col1, col2, col3 = st.columns([1, 1, 1])
-
-        with col2:
-            submit_button = st.form_submit_button("🔑 Login", use_container_width=True, type="primary")
-
-        if submit_button:
-            if not username or not password:
-                st.error("Please enter both username and password.")
-                return False
-
-            with st.spinner("Authenticating..."):
-                success = asyncio.run(authenticate_user(username, password))
-
-                if success:
-                    st.success("Login successful! Redirecting...")
-                    st.rerun()
-                    return True
-                else:
-                    st.error("Invalid username or password.")
-                    return False
-
-    # Demo credentials info
-    with st.expander("🎯 Demo Credentials", expanded=False):
-        st.info("""
-        **Demo Account:**
-        - Username: `demo`
-        - Password: `demo123`
-
-        **Admin Account:**
-        - Username: `admin`
-        - Password: `admin123`
-        """)
-
-    return False
-
-
-def render_register_form() -> bool:
-    """Render registration form."""
-
-    with st.form("register_form"):
-        st.subheader("Create New Account")
-
-        username = st.text_input("Username", placeholder="Choose a username")
-        email = st.text_input("Email", placeholder="Enter your email")
-        full_name = st.text_input("Full Name", placeholder="Enter your full name (optional)")
-        password = st.text_input("Password", type="password", placeholder="Choose a password")
-        confirm_password = st.text_input("Confirm Password", type="password", placeholder="Confirm your password")
-
-        col1, col2, col3 = st.columns([1, 1, 1])
-
-        with col2:
-            submit_button = st.form_submit_button("📝 Register", use_container_width=True, type="primary")
-
-        if submit_button:
-            # Validation
-            if not username or not email or not password:
-                st.error("Please fill in all required fields.")
-                return False
-
-            if password != confirm_password:
-                st.error("Passwords do not match.")
-                return False
-
-            if len(password) < 6:
-                st.error("Password must be at least 6 characters long.")
-                return False
-
-            if not is_valid_email(email):
-                st.error("Please enter a valid email address.")
-                return False
-
-            with st.spinner("Creating account..."):
-                from .api_client import register_user
-                success = asyncio.run(register_user(username, email, password, full_name))
-
-                if success:
-                    st.success("Account created successfully! Please log in.")
-                    return False  # Don't auto-login, let user login manually
-                else:
-                    return False
-
-    return False
-
-
-def is_valid_email(email: str) -> bool:
-    """Validate email format."""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
-
-
-def format_timestamp(timestamp: str) -> str:
-    """Format timestamp for display."""
-    try:
-        if isinstance(timestamp, str):
-            # Handle various timestamp formats
-            if 'T' in timestamp:
-                # ISO format
-                dt = datetime.fromisoformat(timestamp.replace('Z', '+00:00'))
-            else:
-                # Try common formats
-                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d', '%H:%M:%S']:
-                    try:
-                        dt = datetime.strptime(timestamp, fmt)
-                        break
-                    except ValueError:
-                        continue
-                else:
-                    return timestamp
-
-            return dt.strftime('%Y-%m-%d %H:%M:%S')
-        return str(timestamp)
-    except Exception:
-        return str(timestamp)
-
-
-def format_number(value: Any) -> str:
-    """Format number for display."""
-    try:
-        if isinstance(value, (int, float)):
-            if abs(value) >= 1_000_000:
-                return f"{value / 1_000_000:.1f}M"
-            elif abs(value) >= 1_000:
-                return f"{value / 1_000:.1f}K"
-            elif isinstance(value, float):
-                return f"{value:.2f}"
-            else:
-                return f"{value:,}"
-        return str(value)
-    except Exception:
-        return str(value)
-
-
-def safe_json_loads(json_str: str, default: Any = None) -> Any:
-    """Safely load JSON string with fallback."""
-    try:
-        import json
-        return json.loads(json_str)
-    except Exception:
-        return default
-
-
-def truncate_text(text: str, max_length: int = 100, suffix: str = "...") -> str:
-    """Truncate text to specified length."""
-    if len(text) <= max_length:
-        return text
-    return text[:max_length - len(suffix)] + suffix
-
-
-def create_download_link(data: str, filename: str, mime_type: str = "text/plain") -> str:
-    """Create download link for data."""
-    import base64
-
-    b64 = base64.b64encode(data.encode()).decode()
-    href = f'<a href="data:{mime_type};base64,{b64}" download="{filename}">Download {filename}</a>'
-    return href
-
-
-def validate_sql_query(query: str) -> Tuple[bool, str]:
-    """Basic SQL query validation."""
-    query = query.strip().upper()
-
-    # Check if it's a SELECT statement
-    if not query.startswith('SELECT'):
-        return False, "Only SELECT statements are allowed"
-
-    # Check for dangerous keywords
-    dangerous_keywords = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'CREATE', 'ALTER', 'TRUNCATE']
-    for keyword in dangerous_keywords:
-        if keyword in query:
-            return False, f"Dangerous keyword '{keyword}' detected"
-
-    return True, "Query is valid"
-
-
-def display_error_message(error: Exception, context: str = ""):
-    """Display user-friendly error message."""
-    error_str = str(error).lower()
-
-    if "connection" in error_str:
-        st.error(f"🔌 Connection Error: Unable to connect to the server. {context}")
-    elif "timeout" in error_str:
-        st.error(f"⏱️ Timeout Error: The request took too long. {context}")
-    elif "permission" in error_str or "unauthorized" in error_str:
-        st.error(f"🔒 Permission Error: You don't have access to this resource. {context}")
-    elif "not found" in error_str:
-        st.error(f"🔍 Not Found: The requested resource was not found. {context}")
-    else:
-        st.error(f"❌ Error: {str(error)} {context}")
-
-
-def show_loading_spinner(message: str = "Loading..."):
-    """Show loading spinner with message."""
-    return st.spinner(message)
-
-
-def display_success_message(message: str):
-    """Display success message with consistent styling."""
-    st.success(f"✅ {message}")
-
-
-def display_info_message(message: str):
-    """Display info message with consistent styling."""
-    st.info(f"ℹ️ {message}")
-
-
-def display_warning_message(message: str):
-    """Display warning message with consistent styling."""
-    st.warning(f"⚠️ {message}")
-
-
-def create_metric_card(title: str, value: str, delta: Optional[str] = None, help_text: Optional[str] = None):
-    """Create a metric card with consistent styling."""
-    st.metric(
-        label=title,
-        value=value,
-        delta=delta,
-        help=help_text
-    )
-
-
-def render_code_block(code: str, language: str = "sql"):
-    """Render code block with syntax highlighting."""
-    st.code(code, language=language)
-
-
-def create_expandable_section(title: str, content: str, expanded: bool = False):
-    """Create expandable section."""
-    with st.expander(title, expanded=expanded):
-        st.write(content)
-
-
-def get_user_settings() -> Dict[str, Any]:
-    """Get user settings from session state."""
-    return st.session_state.get('page_config', {
-        'theme': 'auto',
-        'show_sql': True,
-        'auto_execute': True,
-        'max_results': 100
-    })
-
-
-def update_user_settings(settings: Dict[str, Any]):
-    """Update user settings in session state."""
-    if 'page_config' not in st.session_state:
-        st.session_state.page_config = {}
-
-    st.session_state.page_config.update(settings)
-
-
-def clear_cache():
-    """Clear all cached data."""
-    if 'api_cache' in st.session_state:
-        st.session_state.api_cache = {}
-
-    # Clear other cache keys
-    cache_keys = [key for key in st.session_state.keys() if key.startswith('cache_')]
-    for key in cache_keys:
-        del st.session_state[key]
-
-
-def get_theme_config():
-    """Get theme configuration."""
-    settings = get_user_settings()
-    theme = settings.get('theme', 'auto')
-
-    if theme == 'dark':
-        return {
-            'backgroundColor': '#0E1117',
-            'secondaryBackgroundColor': '#262730',
-            'textColor': '#FAFAFA'
-        }
-    elif theme == 'light':
-        return {
-            'backgroundColor': '#FFFFFF',
-            'secondaryBackgroundColor': '#F0F2F6',
-            'textColor': '#262730'
-        }
-    else:
-        return {}  # Auto theme
-
-
-def sanitize_filename(filename: str) -> str:
-    """Sanitize filename for safe downloads."""
-    # Remove or replace unsafe characters
-    filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
-    filename = re.sub(r'\s+', '_', filename)  # Replace spaces with underscores
-    return filename
-
-
-def format_file_size(size_bytes: int) -> str:
-    """Format file size in human-readable format."""
-    if size_bytes < 1024:
-        return f"{size_bytes} B"
-    elif size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    elif size_bytes < 1024 * 1024 * 1024:
-        return f"{size_bytes / (1024 * 1024):.1f} MB"
-    else:
-        return f"{size_bytes / (1024 * 1024 * 1024):.1f} GB"
-
-
-def validate_dataframe(df: pd.DataFrame) -> Tuple[bool, str]:
-    """Validate DataFrame for display."""
-    if df is None:
-        return False, "DataFrame is None"
-
-    if df.empty:
-        return False, "DataFrame is empty"
-
-    if len(df.columns) == 0:
-        return False, "DataFrame has no columns"
-
-    # Check for reasonable size
-    if len(df) > 50000:
-        return False, f"DataFrame too large ({len(df)} rows). Consider filtering."
-
-    return True, "DataFrame is valid"
-
-
-def create_sidebar_info(title: str, content: Dict[str, Any]):
-    """Create informational sidebar section."""
-    with st.sidebar:
-        st.subheader(title)
-        for key, value in content.items():
-            st.write(f"**{key}:** {value}")
-
-
-def handle_navigation(page_name: str):
-    """Handle page navigation."""
-    if page_name == "overview":
-        st.switch_page("pages/1_📊_Overview.py")
-    elif page_name == "chat":
-        st.switch_page("pages/2_💬_Chat.py")
-    elif page_name == "home":
-        st.switch_page("ui/app.py")
-
-
-def get_sample_queries() -> List[str]:
-    """Get sample queries for user guidance."""
-    return [
-        "Show me all customers from the last month",
-        "What are the top 5 products by sales?",
-        "Display revenue trends for this year",
-        "How many orders were placed today?",
-        "Which regions have the highest sales?",
-        "Show me customer demographics",
-        "What's the average order value?",
-        "List all products with low inventory",
-        "Show sales by category",
-        "Find customers with no recent orders"
-    ]
-
-
-def create_help_text(section: str) -> str:
-    """Create context-specific help text."""
-    help_texts = {
-        "chat": """
-        **Chat Tips:**
-        - Ask questions in plain English
-        - Be specific about what data you want
-        - Mention time periods when relevant
-        - Use follow-up questions to drill down
-        """,
-        "overview": """
-        **Overview Features:**
-        - View system health and performance
-        - Browse available data tables
-        - Check recent activity
-        - Monitor system metrics
-        """,
-        "data": """
-        **Data Tips:**
-        - Explore table schemas before querying
-        - Use filters to narrow down results
-        - Export data in various formats
-        - Check data quality metrics
-        """
-    }
-
-    return help_texts.get(section, "No help available for this section.")
-
-
-def render_footer():
-    """Render consistent footer across pages."""
-    st.markdown("---")
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        st.markdown("**ChatBI** - Intelligent Data Analytics")
-
-    with col2:
-        st.markdown("Made with ❤️ using Streamlit")
-
-    with col3:
-        st.markdown(f"Version {get_app_version()}")
-
-
-def get_app_version() -> str:
-    """Get application version."""
-    from utils.config import settings
-    return settings.app_version
-
-
-def check_user_permissions(required_permission: str) -> bool:
-    """Check if current user has required permission."""
-    user = st.session_state.get('user')
-    if not user:
+    except Exception as e:
+        st.error(f"Failed to save conversation: {str(e)}")
         return False
 
-    # Simple permission check - in production, this would be more sophisticated
-    user_permissions = user.get('permissions', [])
-    is_admin = user.get('is_admin', False)
 
-    return is_admin or required_permission in user_permissions
+def format_sql_query(query: str) -> str:
+    keywords = [
+        'SELECT', 'FROM', 'WHERE', 'JOIN', 'LEFT JOIN', 'RIGHT JOIN',
+        'INNER JOIN', 'GROUP BY', 'ORDER BY', 'HAVING', 'LIMIT',
+        'INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP'
+    ]
 
+    formatted = query
+    for keyword in keywords:
+        formatted = formatted.replace(keyword, f"\n{keyword}")
+        formatted = formatted.replace(keyword.lower(), f"\n{keyword}")
 
-def require_permission(permission: str):
-    """Decorator/function to require specific permission."""
-    if not check_user_permissions(permission):
-        st.error(f"Permission denied. Required permission: {permission}")
-        st.stop()
-
-
-def log_user_action(action: str, details: Optional[Dict[str, Any]] = None):
-    """Log user action for analytics."""
-    # In production, this would send to analytics service
-    log_entry = {
-        'timestamp': datetime.now().isoformat(),
-        'user': st.session_state.get('user', {}).get('username', 'anonymous'),
-        'action': action,
-        'details': details or {}
-    }
-
-    # For now, just store in session state
-    if 'user_actions' not in st.session_state:
-        st.session_state.user_actions = []
-
-    st.session_state.user_actions.append(log_entry)
+    lines = [line.strip() for line in formatted.split('\n') if line.strip()]
+    return '\n'.join(lines)
 
 
-def get_user_activity_summary() -> Dict[str, Any]:
-    """Get summary of user activity."""
-    actions = st.session_state.get('user_actions', [])
+def render_chart(config: Dict[str, Any], df: pd.DataFrame):
+    chart_type = config.get('type', 'bar')
+    import streamlit as st
 
-    return {
-        'total_actions': len(actions),
-        'last_action': actions[-1]['timestamp'] if actions else None,
-        'action_counts': {}  # Would count action types
-    }
+    try:
+        if chart_type == 'line':
+            fig = px.line(
+                df,
+                x=config.get('x'),
+                y=config.get('y'),
+                color=config.get('color'),
+                title=config.get('title', 'Line Chart')
+            )
+
+        elif chart_type == 'bar':
+            fig = px.bar(
+                df,
+                x=config.get('x'),
+                y=config.get('y'),
+                color=config.get('color'),
+                title=config.get('title', 'Bar Chart')
+            )
+
+        elif chart_type == 'scatter':
+            fig = px.scatter(
+                df,
+                x=config.get('x'),
+                y=config.get('y'),
+                color=config.get('color'),
+                size=config.get('size'),
+                title=config.get('title', 'Scatter Plot')
+            )
+
+        elif chart_type == 'pie':
+            fig = px.pie(
+                df,
+                values=config.get('values'),
+                names=config.get('names'),
+                title=config.get('title', 'Pie Chart')
+            )
+
+        elif chart_type == 'heatmap':
+            z_data = config.get('z')
+            if isinstance(z_data, str) and z_data in df.columns:
+                pivot_df = df.pivot_table(
+                    index=config.get('y'),
+                    columns=config.get('x'),
+                    values=z_data,
+                    aggfunc='mean'
+                )
+                z_data = pivot_df.values
+
+            fig = go.Figure(data=go.Heatmap(
+                z=z_data,
+                x=config.get('x'),
+                y=config.get('y'),
+                colorscale='Viridis'
+            ))
+
+            fig.update_layout(title=config.get('title', 'Heatmap'))
+
+        elif chart_type == 'histogram':
+            fig = px.histogram(
+                df,
+                x=config.get('x') or config.get('column'),
+                title=config.get('title', 'Histogram'),
+                nbins=config.get('nbins', 20)
+            )
+
+        elif chart_type == 'box':
+            fig = px.box(
+                df,
+                y=config.get('y') or config.get('column'),
+                x=config.get('x'),
+                title=config.get('title', 'Box Plot')
+            )
+
+        elif chart_type == 'area':
+            fig = px.area(
+                df,
+                x=config.get('x'),
+                y=config.get('y'),
+                color=config.get('color'),
+                title=config.get('title', 'Area Chart')
+            )
+
+        else:
+            st.error(f"Unsupported chart type: {chart_type}")
+            return
+
+        fig.update_layout(
+            height=config.get('height', 400),
+            showlegend=config.get('show_legend', True),
+            template='plotly_white'
+        )
+
+        st.plotly_chart(fig, use_container_width=True)
+
+    except Exception as e:
+        st.error(f"Error rendering chart: {str(e)}")
 
 
-def reset_session():
-    """Reset session state (logout + clear cache)."""
-    # Keep only essential keys
-    keys_to_keep = ['page_config']
-
-    for key in list(st.session_state.keys()):
-        if key not in keys_to_keep:
-            del st.session_state[key]
-
-    # Reinitialize
-    initialize_session_state()
-
-
-def create_status_indicator(status: str) -> str:
-    """Create colored status indicator."""
-    status_colors = {
-        'success': '🟢',
-        'warning': '🟡',
-        'error': '🔴',
-        'info': '🔵',
-        'pending': '⚪'
-    }
-
-    return status_colors.get(status.lower(), '⚪')
-
-
-def format_duration(seconds: float) -> str:
-    """Format duration in human-readable format."""
-    if seconds < 1:
-        return f"{seconds * 1000:.0f}ms"
-    elif seconds < 60:
-        return f"{seconds:.1f}s"
-    elif seconds < 3600:
-        return f"{seconds / 60:.1f}m"
+def format_number(value: float, decimals: int = 2) -> str:
+    if value >= 1_000_000:
+        return f"{value / 1_000_000:.{decimals}f}M"
+    elif value >= 1_000:
+        return f"{value / 1_000:.{decimals}f}K"
     else:
-        return f"{seconds / 3600:.1f}h"
+        return f"{value:.{decimals}f}"
 
 
-def create_progress_bar(current: int, total: int, label: str = "") -> None:
-    """Create progress bar with label."""
-    progress = current / total if total > 0 else 0
-    st.progress(progress, text=f"{label} ({current}/{total})")
+def get_color_scale(n: int) -> List[str]:
+    colors = [
+        "#1f77b4", "#ff7f0e", "#2ca02c", "#d62728",
+        "#9467bd", "#8c564b", "#e377c2", "#7f7f7f",
+        "#bcbd22", "#17becf"
+    ]
 
-
-def render_data_quality_badge(quality_score: float) -> str:
-    """Render data quality badge based on score."""
-    if quality_score >= 0.9:
-        return "🟢 Excellent"
-    elif quality_score >= 0.7:
-        return "🟡 Good"
-    elif quality_score >= 0.5:
-        return "🟠 Fair"
+    if n <= len(colors):
+        return colors[:n]
     else:
-        return "🔴 Poor"
+        import colorsys
+        additional = []
+        for i in range(n - len(colors)):
+            hue = i / (n - len(colors))
+            rgb = colorsys.hsv_to_rgb(hue, 0.8, 0.9)
+            hex_color = '#' + ''.join(f'{int(c * 255):02x}' for c in rgb)
+            additional.append(hex_color)
+        return colors + additional
+
+
+def export_dataframe(df: pd.DataFrame, format: str = 'csv') -> bytes:
+    if format == 'csv':
+        return df.to_csv(index=False).encode('utf-8')
+    elif format == 'json':
+        return df.to_json(orient='records', indent=2).encode('utf-8')
+    elif format == 'excel':
+        import io
+        buffer = io.BytesIO()
+        with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+            df.to_excel(writer, sheet_name='Data', index=False)
+        return buffer.getvalue()
+    else:
+        raise ValueError(f"Unsupported format: {format}")
+
+
+def parse_uploaded_file(file) -> Optional[pd.DataFrame]:
+    import streamlit as st
+    try:
+        if file.name.endswith('.csv'):
+            return pd.read_csv(file)
+        elif file.name.endswith('.xlsx') or file.name.endswith('.xls'):
+            return pd.read_excel(file)
+        elif file.name.endswith('.json'):
+            return pd.read_json(file)
+        else:
+            st.error(f"Unsupported file type: {file.name}")
+            return None
+    except Exception as e:
+        st.error(f"Error parsing file: {str(e)}")
+        return None
+
+
+def validate_dataframe(df: pd.DataFrame) -> Dict[str, Any]:
+    issues = {
+        'warnings': [],
+        'errors': [],
+        'info': []
+    }
+
+    if df.empty:
+        issues['errors'].append("DataFrame is empty")
+        return issues
+
+    missing_cols = df.columns[df.isnull().any()].tolist()
+    if missing_cols:
+        issues['warnings'].append(f"Missing values in columns: {', '.join(missing_cols)}")
+
+    if df.duplicated().any():
+        issues['warnings'].append(f"Found {df.duplicated().sum()} duplicate rows")
+
+    for col in df.columns:
+        if df[col].dtype == 'object':
+            try:
+                pd.to_numeric(df[col])
+                issues['info'].append(f"Column '{col}' could be converted to numeric")
+            except:
+                pass
+
+    if len(df) > 10000:
+        issues['info'].append(f"Large dataset with {len(df)} rows - consider sampling for visualization")
+
+    return issues
+
+
+def render_chart_from_metadata(metadata: Dict[str, Any], index: int):
+    import streamlit as st
+
+    try:
+        chart_type = metadata.get('chart_type', 'table')
+        chart_data = metadata.get('chart_data', {})
+        chart_config = metadata.get('chart_config', {})
+
+        st.markdown("---")
+        st.subheader("📊 数据可视化")
+
+        if chart_type == 'bar':
+            render_bar_chart(chart_data, chart_config, f"bar_{index}")
+        elif chart_type == 'line':
+            render_line_chart(chart_data, chart_config, f"line_{index}")
+        elif chart_type == 'pie':
+            render_pie_chart(chart_data, chart_config, f"pie_{index}")
+        elif chart_type == 'scatter':
+            render_scatter_chart(chart_data, chart_config, f"scatter_{index}")
+        else:
+            render_table_chart(chart_data, chart_config, f"table_{index}")
+
+        add_chart_download_options(chart_data, chart_config, index)
+
+    except Exception as e:
+        st.error(f"渲染图表时出错：{str(e)}")
+
+
+def render_bar_chart(chart_data: Dict, chart_config: Dict, key: str):
+    import streamlit as st
+
+    try:
+        labels = chart_data.get('labels', [])
+        datasets = chart_data.get('datasets', [])
+
+        if datasets and len(datasets) > 0:
+            dataset = datasets[0]
+            data_values = dataset.get('data', [])
+
+            df = pd.DataFrame({
+                'x': labels,
+                'y': data_values
+            })
+
+            fig = px.bar(
+                df,
+                x='x',
+                y='y',
+                title=chart_config.get('title', '柱状图'),
+                labels={
+                    'x': chart_config.get('x_title', 'X轴'),
+                    'y': chart_config.get('y_title', 'Y轴')
+                }
+            )
+
+            fig.update_layout(
+                height=400,
+                showlegend=False
+            )
+
+            st.plotly_chart(fig, use_container_width=True, key=key)
+        else:
+            st.warning("没有可用的图表数据")
+
+    except Exception as e:
+        st.error(f"创建柱状图时出错：{str(e)}")
+
+
+def render_line_chart(chart_data: Dict, chart_config: Dict, key: str):
+    import streamlit as st
+
+    try:
+        labels = chart_data.get('labels', [])
+        datasets = chart_data.get('datasets', [])
+
+        if datasets and len(datasets) > 0:
+            dataset = datasets[0]
+            data_values = dataset.get('data', [])
+
+            df = pd.DataFrame({
+                'x': labels,
+                'y': data_values
+            })
+
+            fig = px.line(
+                df,
+                x='x',
+                y='y',
+                title=chart_config.get('title', '折线图'),
+                labels={
+                    'x': chart_config.get('x_title', 'X轴'),
+                    'y': chart_config.get('y_title', 'Y轴')
+                }
+            )
+
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True, key=key)
+        else:
+            st.warning("没有可用的图表数据")
+
+    except Exception as e:
+        st.error(f"创建折线图时出错：{str(e)}")
+
+
+def render_pie_chart(chart_data: Dict, chart_config: Dict, key: str):
+    import streamlit as st
+
+    try:
+        labels = chart_data.get('labels', [])
+        datasets = chart_data.get('datasets', [])
+
+        if datasets and len(datasets) > 0:
+            dataset = datasets[0]
+            values = dataset.get('data', [])
+
+            df = pd.DataFrame({
+                'labels': labels,
+                'values': values
+            })
+
+            fig = px.pie(
+                df,
+                values='values',
+                names='labels',
+                title=chart_config.get('title', '饼图')
+            )
+
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True, key=key)
+        else:
+            st.warning("没有可用的图表数据")
+
+    except Exception as e:
+        st.error(f"创建饼图时出错：{str(e)}")
+
+
+def render_scatter_chart(chart_data: Dict, chart_config: Dict, key: str):
+    import streamlit as st
+
+    try:
+        labels = chart_data.get('labels', [])
+        datasets = chart_data.get('datasets', [])
+
+        if datasets and len(datasets) > 0:
+            dataset = datasets[0]
+            data_values = dataset.get('data', [])
+
+            df = pd.DataFrame({
+                'x': labels,
+                'y': data_values
+            })
+
+            fig = px.scatter(
+                df,
+                x='x',
+                y='y',
+                title=chart_config.get('title', '散点图'),
+                labels={
+                    'x': chart_config.get('x_title', 'X轴'),
+                    'y': chart_config.get('y_title', 'Y轴')
+                }
+            )
+
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True, key=key)
+        else:
+            st.warning("没有可用的图表数据")
+
+    except Exception as e:
+        st.error(f"创建散点图时出错：{str(e)}")
+
+
+def render_table_chart(chart_data: Dict, chart_config: Dict, key: str):
+    import streamlit as st
+
+    try:
+        if 'rows' in chart_data:
+            df = pd.DataFrame(chart_data['rows'])
+            st.subheader(chart_config.get('title', '数据表格'))
+            st.dataframe(df, use_container_width=True, key=key)
+        elif 'labels' in chart_data and 'datasets' in chart_data:
+            labels = chart_data.get('labels', [])
+            datasets = chart_data.get('datasets', [])
+
+            if datasets:
+                dataset = datasets[0]
+                values = dataset.get('data', [])
+
+                df = pd.DataFrame({
+                    '标签': labels,
+                    '数值': values
+                })
+
+                st.subheader(chart_config.get('title', '数据表格'))
+                st.dataframe(df, use_container_width=True, key=key)
+        else:
+            st.warning("没有可用的表格数据")
+
+    except Exception as e:
+        st.error(f"创建表格时出错：{str(e)}")
+
+
+def render_query_results(result: Dict[str, Any], index: int):
+    import streamlit as st
+
+    data = result.get('data', [])
+    if data:
+        st.markdown("---")
+        st.subheader("📋 查询结果")
+        df = pd.DataFrame(data)
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.metric("行数", len(df))
+        with col2:
+            st.metric("列数", len(df.columns))
+
+        st.dataframe(df, use_container_width=True, key=f"query_result_{index}")
+
+        with st.expander("快速可视化"):
+            col1, col2, col3 = st.columns(3)
+
+            with col1:
+                if st.button("生成柱状图", key=f"bar_quick_{index}"):
+                    quick_visualization(df, 'bar', index)
+
+            with col2:
+                if st.button("生成折线图", key=f"line_quick_{index}"):
+                    quick_visualization(df, 'line', index)
+
+            with col3:
+                if st.button("生成饼图", key=f"pie_quick_{index}"):
+                    quick_visualization(df, 'pie', index)
+
+
+def quick_visualization(df: pd.DataFrame, chart_type: str, index: int):
+    import streamlit as st
+
+    try:
+        numeric_cols = df.select_dtypes(include=['number']).columns.tolist()
+        categorical_cols = df.select_dtypes(include=['object', 'string']).columns.tolist()
+
+        if chart_type == 'bar' and numeric_cols and categorical_cols:
+            fig = px.bar(df, x=categorical_cols[0], y=numeric_cols[0])
+            st.plotly_chart(fig, use_container_width=True, key=f"quick_bar_{index}")
+
+        elif chart_type == 'line' and len(numeric_cols) >= 2:
+            fig = px.line(df, x=numeric_cols[0], y=numeric_cols[1])
+            st.plotly_chart(fig, use_container_width=True, key=f"quick_line_{index}")
+
+        elif chart_type == 'pie' and numeric_cols and categorical_cols:
+            grouped = df.groupby(categorical_cols[0])[numeric_cols[0]].sum().reset_index()
+            fig = px.pie(grouped, values=numeric_cols[0], names=categorical_cols[0])
+            st.plotly_chart(fig, use_container_width=True, key=f"quick_pie_{index}")
+
+    except Exception as e:
+        st.error(f"生成快速图表时出错：{str(e)}")
+
+
+def add_chart_download_options(chart_data: Dict, chart_config: Dict, index: int):
+    import streamlit as st
+
+    with st.expander("下载选项"):
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if 'rows' in chart_data:
+                df = pd.DataFrame(chart_data['rows'])
+            else:
+                labels = chart_data.get('labels', [])
+                datasets = chart_data.get('datasets', [])
+                if datasets:
+                    values = datasets[0].get('data', [])
+                    df = pd.DataFrame({'标签': labels, '数值': values})
+                else:
+                    df = pd.DataFrame()
+
+            if not df.empty:
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button(
+                    "下载 CSV",
+                    csv,
+                    f"chart_data_{index}.csv",
+                    "text/csv",
+                    key=f"download_csv_{index}"
+                )
+
+        with col2:
+            if not df.empty:
+                json_str = df.to_json(orient='records', force_ascii=False)
+                st.download_button(
+                    "下载 JSON",
+                    json_str,
+                    f"chart_data_{index}.json",
+                    "application/json",
+                    key=f"download_json_{index}"
+                )

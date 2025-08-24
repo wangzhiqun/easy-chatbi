@@ -1,171 +1,131 @@
-"""
-SQLAlchemy models for ChatBI platform.
-Defines database table structures and relationships.
-"""
-
-from sqlalchemy import Column, Integer, String, Text, DateTime, Boolean, JSON, ForeignKey, Index
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
 from datetime import datetime
+
+from sqlalchemy import Column, Integer, String, Text, DateTime, JSON, Boolean, ForeignKey, DECIMAL
+from sqlalchemy.orm import relationship
 
 from .database import Base
 
 
 class User(Base):
-    """User model for authentication and authorization."""
-
     __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
-    hashed_password = Column(String(255), nullable=False)
-    full_name = Column(String(100))
+    password_hash = Column(String(255), nullable=False)
+    api_key = Column(String(100), unique=True, index=True)
     is_active = Column(Boolean, default=True)
-    is_admin = Column(Boolean, default=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    # Relationships
-    chat_sessions = relationship("ChatSession", back_populates="user")
+    conversations = relationship("Conversation", back_populates="user")
     queries = relationship("QueryHistory", back_populates="user")
+    orders = relationship("Order", back_populates="user")
 
 
-class ChatSession(Base):
-    """Chat session model to track conversations."""
+class Conversation(Base):
+    __tablename__ = "conversations"
 
-    __tablename__ = "chat_sessions"
+    id = Column(String(36), primary_key=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    title = Column(String(200))
+    context = Column(JSON)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    session_name = Column(String(200), default="New Chat")
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Relationships
-    user = relationship("User", back_populates="chat_sessions")
-    messages = relationship("ChatMessage", back_populates="session")
-
-    # Index
-    __table_args__ = (Index("idx_user_session", "user_id", "created_at"),)
+    user = relationship("User", back_populates="conversations")
+    messages = relationship("Message", back_populates="conversation")
 
 
-class ChatMessage(Base):
-    """Individual chat messages within sessions."""
+class Message(Base):
+    __tablename__ = "messages"
 
-    __tablename__ = "chat_messages"
-
-    id = Column(Integer, primary_key=True, index=True)
-    session_id = Column(Integer, ForeignKey("chat_sessions.id"), nullable=False)
-    message_type = Column(String(20), nullable=False)  # 'user', 'assistant', 'system'
+    id = Column(String(36), primary_key=True)
+    conversation_id = Column(String(36), ForeignKey("conversations.id"))
+    role = Column(String(20), nullable=False)
     content = Column(Text, nullable=False)
-    metadata_data = Column(JSON)  # Store additional message metadata
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    metadata_json = Column(JSON)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
-    session = relationship("ChatSession", back_populates="messages")
-
-    # Index
-    __table_args__ = (Index("idx_session_time", "session_id", "created_at"),)
+    conversation = relationship("Conversation", back_populates="messages")
 
 
 class QueryHistory(Base):
-    """History of SQL queries generated and executed."""
-
     __tablename__ = "query_history"
 
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    session_id = Column(Integer, ForeignKey("chat_sessions.id"))
-    user_question = Column(Text, nullable=False)
-    generated_sql = Column(Text, nullable=False)
-    execution_status = Column(String(20), default="pending")  # pending, success, error
-    execution_time_ms = Column(Integer)
-    result_rows = Column(Integer)
+    user_id = Column(Integer, ForeignKey("users.id"))
+    query = Column(Text, nullable=False)
+    result = Column(JSON)
+    execution_time = Column(Integer)
+    row_count = Column(Integer)
+    status = Column(String(20))
     error_message = Column(Text)
-    is_safe = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Relationships
     user = relationship("User", back_populates="queries")
 
-    # Index
-    __table_args__ = (
-        Index("idx_user_query", "user_id", "created_at"),
-        Index("idx_status", "execution_status"),
-    )
+
+class ChartConfig(Base):
+    __tablename__ = "chart_configs"
+
+    id = Column(String(36), primary_key=True)
+    name = Column(String(100), nullable=False)
+    chart_type = Column(String(50), nullable=False)
+    config = Column(JSON, nullable=False)
+    query_id = Column(Integer, ForeignKey("query_history.id"))
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
 class DataSource(Base):
-    """Configuration for different data sources."""
-
     __tablename__ = "data_sources"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    description = Column(Text)
-    connection_type = Column(String(50), nullable=False)  # mysql, postgresql, etc.
-    connection_config = Column(JSON, nullable=False)  # Store connection parameters
+    type = Column(String(50), nullable=False)
+    connection_config = Column(JSON, nullable=False)
     is_active = Column(Boolean, default=True)
-    created_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class DataTable(Base):
-    """Metadata about tables in data sources."""
-
-    __tablename__ = "data_tables"
+class KnowledgeBase(Base):
+    __tablename__ = "knowledge_base"
 
     id = Column(Integer, primary_key=True, index=True)
-    data_source_id = Column(Integer, ForeignKey("data_sources.id"), nullable=False)
-    table_name = Column(String(100), nullable=False)
-    table_description = Column(Text)
-    column_metadata = Column(JSON)  # Store column information
-    sample_data = Column(JSON)  # Store sample rows for context
-    business_context = Column(Text)  # Business meaning of the table
-    is_accessible = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-    # Index
-    __table_args__ = (Index("idx_datasource_table", "data_source_id", "table_name"),)
+    title = Column(String(200), nullable=False)
+    content = Column(Text, nullable=False)
+    category = Column(String(50))
+    tags = Column(JSON)
+    embedding_id = Column(String(100))
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
 
-class AuditLog(Base):
-    """Audit log for tracking system activities."""
+class Product(Base):
+    __tablename__ = "products"
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)
+    category = Column(String(50))
+    price = Column(DECIMAL(10, 2))
+    stock = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    __tablename__ = "audit_logs"
+    orders = relationship("Order", back_populates="product")
 
+
+class Order(Base):
+    __tablename__ = "orders"
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
-    action_type = Column(String(50), nullable=False)  # login, query, data_access, etc.
-    resource_type = Column(String(50))  # table, query, session, etc.
-    resource_id = Column(String(100))
-    action_details = Column(JSON)
-    ip_address = Column(String(45))  # Support IPv6
-    user_agent = Column(String(500))
-    success = Column(Boolean, default=True)
-    error_message = Column(Text)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    product_id = Column(Integer, ForeignKey("products.id"))
+    quantity = Column(Integer, nullable=False)
+    amount = Column(DECIMAL(10, 2))
+    status = Column(String(20), default='pending')
+    created_at = Column(DateTime, default=datetime.utcnow)
 
-    # Index
-    __table_args__ = (
-        Index("idx_user_action", "user_id", "action_type", "created_at"),
-        Index("idx_resource", "resource_type", "resource_id"),
-    )
-
-
-class SystemConfig(Base):
-    """System configuration and settings."""
-
-    __tablename__ = "system_config"
-
-    id = Column(Integer, primary_key=True, index=True)
-    config_key = Column(String(100), unique=True, nullable=False)
-    config_value = Column(JSON, nullable=False)
-    description = Column(Text)
-    is_active = Column(Boolean, default=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+    user = relationship("User", back_populates="orders")
+    product = relationship("Product", back_populates="orders")

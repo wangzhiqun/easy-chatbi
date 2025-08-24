@@ -1,5 +1,6 @@
-"""
-API module for ChatBI data intelligence platform
-"""
+from .main import app
+from .database import get_db, init_db
+from .models import *
+from .schemas import *
 
-__version__ = "1.0.0"
+__all__ = ['app', 'get_db', 'init_db']

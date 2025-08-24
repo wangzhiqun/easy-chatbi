@@ -1,7 +1,3 @@
-"""
-API routes module for ChatBI
-"""
+from . import chat, data, mcp
 
-from . import auth, chat, data
-
-__all__ = ["auth", "chat", "data"]
+__all__ = ['chat', 'data', 'mcp']

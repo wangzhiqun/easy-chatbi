@@ -1,58 +1,29 @@
-"""
-Logging configuration for ChatBI platform.
-Provides structured logging with different levels and formatters.
-"""
-
 import sys
+from pathlib import Path
 from loguru import logger
-from .config import settings
+from .config import get_config
 
+config = get_config()
 
-def setup_logging():
-    """Configure application logging."""
-    # Remove default handler
-    logger.remove()
+log_dir = Path(config.log_file).parent
+log_dir.mkdir(parents=True, exist_ok=True)
 
-    # Add console handler with custom format
-    logger.add(
-        sys.stdout,
-        level=settings.log_level,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
-        colorize=True,
-        backtrace=True,
-        diagnose=True
-    )
+logger.remove()
 
-    # Add file handler for persistent logging
-    logger.add(
-        "logs/chatbi.log",
-        level=settings.log_level,
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
-        rotation="100 MB",
-        retention="7 days",
-        compression="gz"
-    )
+logger.add(
+    sys.stdout,
+    format="<green>{time:YYYY-MM-DD HH:mm:ss}</green> | <level>{level: <8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> - <level>{message}</level>",
+    level=config.log_level,
+    colorize=True
+)
 
-    # Add error file handler
-    logger.add(
-        "logs/error.log",
-        level="ERROR",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level} | {name}:{function}:{line} | {message}",
-        rotation="50 MB",
-        retention="30 days",
-        compression="gz"
-    )
+logger.add(
+    config.log_file,
+    format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function}:{line} - {message}",
+    level=config.log_level,
+    rotation="10 MB",
+    retention="7 days",
+    compression="zip"
+)
 
-
-def get_logger(name: str = None):
-    """Get logger instance with optional name."""
-    if name:
-        return logger.bind(name=name)
-    return logger
-
-
-# Initialize logging on import
-setup_logging()
-
-# Export logger for easy import
-__all__ = ["logger", "get_logger", "setup_logging"]
+__all__ = ['logger']

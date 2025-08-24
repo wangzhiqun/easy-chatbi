@@ -1,527 +1,332 @@
-#!/usr/bin/env python3
-"""
-Data seeding script for ChatBI platform
-Populates database with sample data for testing and demonstration
-"""
-
-import os
-import sys
 import random
-import hashlib
-import uuid
+import sys
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import List, Dict, Any
-import pymysql
-from faker import Faker
 
-# Add project root to path
-project_root = Path(__file__).parent.parent
-sys.path.append(str(project_root))
+import pandas as pd
 
-from utils.config import Config
-from utils.logger import setup_logger
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
-# Setup logging
-logger = setup_logger(__name__)
-fake = Faker()
+from api.database import get_db, init_db
+from api.models import User, Product, Order, KnowledgeBase
+from core import SecurityManager
 
 
-class DataSeeder:
-    """Handle data seeding operations"""
+def seed_database():
+    print("🌱 Seeding database with sample data...")
 
-    def __init__(self, config: Config):
-        self.config = config
-        self.connection = None
+    init_db()
 
-    def connect(self):
-        """Connect to database"""
-        try:
-            self.connection = pymysql.connect(
-                host=self.config.DB_HOST,
-                port=self.config.DB_PORT,
-                user=self.config.DB_USER,
-                password=self.config.DB_PASSWORD,
-                database=self.config.DB_NAME,
-                charset='utf8mb4'
-            )
-            logger.info("Connected to database")
-        except Exception as e:
-            logger.error(f"Failed to connect to database: {e}")
-            raise
+    db = next(get_db())
+    security = SecurityManager()
 
-    def hash_password(self, password: str) -> str:
-        """Hash password using SHA256"""
-        return hashlib.sha256(password.encode()).hexdigest()
-
-    def seed_users(self):
-        """Create default users with different roles"""
-        users = [
-            {
-                'username': 'admin',
-                'email': 'admin@chatbi.com',
-                'password': 'admin123',  # In production, use strong passwords
-                'role': 'admin'
-            },
-            {
-                'username': 'analyst',
-                'email': 'analyst@chatbi.com',
-                'password': 'analyst123',
-                'role': 'analyst'
-            },
-            {
-                'username': 'viewer',
-                'email': 'viewer@chatbi.com',
-                'password': 'viewer123',
-                'role': 'viewer'
-            },
-            {
-                'username': 'demo',
-                'email': 'demo@chatbi.com',
-                'password': 'demo123',
-                'role': 'guest'
-            }
-        ]
-
-        try:
-            with self.connection.cursor() as cursor:
-                for user in users:
-                    # Check if user exists
-                    cursor.execute(
-                        "SELECT id FROM users WHERE username = %s",
-                        (user['username'],)
-                    )
-
-                    if cursor.fetchone():
-                        logger.info(f"User {user['username']} already exists, skipping")
-                        continue
-
-                    # Insert user
-                    cursor.execute(
-                        """INSERT INTO users (username, email, password_hash, role) 
-                           VALUES (%s, %s, %s, %s)""",
-                        (user['username'], user['email'],
-                         self.hash_password(user['password']), user['role'])
-                    )
-
-                    logger.info(f"Created user: {user['username']} ({user['role']})")
-
-                self.connection.commit()
-                logger.info("Users seeding completed")
-
-        except Exception as e:
-            logger.error(f"Failed to seed users: {e}")
-            raise
-
-    def seed_customers(self, count: int = 100):
-        """Generate sample customer data"""
-        try:
-            with self.connection.cursor() as cursor:
-                # Check if customers already exist
-                cursor.execute("SELECT COUNT(*) FROM customers")
-                existing_count = cursor.fetchone()[0]
-
-                if existing_count > 0:
-                    logger.info(f"Found {existing_count} existing customers, skipping customer seeding")
-                    return
-
-                customers = []
-                for _ in range(count):
-                    customer = (
-                        fake.name(),
-                        fake.email(),
-                        fake.phone_number()[:20],  # Limit phone length
-                        fake.address(),
-                        fake.city(),
-                        fake.country(),
-                        fake.date_between(start_date='-2y', end_date='today'),
-                        random.choice(['active', 'inactive', 'suspended'])
-                    )
-                    customers.append(customer)
-
-                cursor.executemany(
-                    """INSERT INTO customers (name, email, phone, address, city, country, 
-                                           registration_date, status) 
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s)""",
-                    customers
-                )
-
-                self.connection.commit()
-                logger.info(f"Created {count} sample customers")
-
-        except Exception as e:
-            logger.error(f"Failed to seed customers: {e}")
-            raise
-
-    def seed_products(self, count: int = 50):
-        """Generate sample product data"""
-        try:
-            with self.connection.cursor() as cursor:
-                # Check if products already exist
-                cursor.execute("SELECT COUNT(*) FROM products")
-                existing_count = cursor.fetchone()[0]
-
-                if existing_count > 0:
-                    logger.info(f"Found {existing_count} existing products, skipping product seeding")
-                    return
-
-                categories = ['Electronics', 'Clothing', 'Home & Garden', 'Books',
-                              'Sports', 'Toys', 'Beauty', 'Automotive']
-
-                products = []
-                for _ in range(count):
-                    cost = round(random.uniform(10, 500), 2)
-                    price = round(cost * random.uniform(1.2, 3.0), 2)  # 20-200% markup
-
-                    product = (
-                        fake.catch_phrase(),  # Product name
-                        random.choice(categories),
-                        price,
-                        cost,
-                        random.randint(0, 1000)  # Stock quantity
-                    )
-                    products.append(product)
-
-                cursor.executemany(
-                    """INSERT INTO products (name, category, price, cost, stock_quantity) 
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    products
-                )
-
-                self.connection.commit()
-                logger.info(f"Created {count} sample products")
-
-        except Exception as e:
-            logger.error(f"Failed to seed products: {e}")
-            raise
-
-    def seed_orders(self, count: int = 200):
-        """Generate sample order data"""
-        try:
-            with self.connection.cursor() as cursor:
-                # Check if orders already exist
-                cursor.execute("SELECT COUNT(*) FROM orders")
-                existing_count = cursor.fetchone()[0]
-
-                if existing_count > 0:
-                    logger.info(f"Found {existing_count} existing orders, skipping order seeding")
-                    return
-
-                # Get customer and product IDs
-                cursor.execute("SELECT id FROM customers")
-                customer_ids = [row[0] for row in cursor.fetchall()]
-
-                cursor.execute("SELECT id, price FROM products")
-                products = cursor.fetchall()
-
-                if not customer_ids or not products:
-                    logger.warning("No customers or products found, cannot create orders")
-                    return
-
-                # Create orders
-                orders = []
-                order_items = []
-
-                for _ in range(count):
-                    customer_id = random.choice(customer_ids)
-                    order_date = fake.date_between(start_date='-1y', end_date='today')
-                    status = random.choice(['pending', 'processing', 'shipped', 'delivered', 'cancelled'])
-
-                    # Calculate total amount based on order items
-                    num_items = random.randint(1, 5)
-                    selected_products = random.sample(products, min(num_items, len(products)))
-                    total_amount = 0
-
-                    order_id = len(orders) + 1  # Temporary ID for linking
-
-                    for product_id, price in selected_products:
-                        quantity = random.randint(1, 3)
-                        unit_price = price
-                        total_amount += quantity * unit_price
-
-                        order_items.append((
-                            order_id,  # Will be updated with actual order ID
-                            product_id,
-                            quantity,
-                            unit_price
-                        ))
-
-                    orders.append((
-                        customer_id,
-                        order_date,
-                        round(total_amount, 2),
-                        status,
-                        fake.address()  # Shipping address
-                    ))
-
-                # Insert orders
-                cursor.executemany(
-                    """INSERT INTO orders (customer_id, order_date, total_amount, status, shipping_address) 
-                       VALUES (%s, %s, %s, %s, %s)""",
-                    orders
-                )
-
-                # Get actual order IDs
-                cursor.execute("SELECT id FROM orders ORDER BY id DESC LIMIT %s", (count,))
-                actual_order_ids = [row[0] for row in cursor.fetchall()]
-                actual_order_ids.reverse()  # Match insertion order
-
-                # Update order items with actual order IDs
-                updated_order_items = []
-                item_index = 0
-
-                for i, order_id in enumerate(actual_order_ids):
-                    while item_index < len(order_items) and order_items[item_index][0] == i + 1:
-                        updated_order_items.append((
-                            order_id,  # Actual order ID
-                            order_items[item_index][1],  # product_id
-                            order_items[item_index][2],  # quantity
-                            order_items[item_index][3]  # unit_price
-                        ))
-                        item_index += 1
-
-                # Insert order items
-                cursor.executemany(
-                    """INSERT INTO order_items (order_id, product_id, quantity, unit_price) 
-                       VALUES (%s, %s, %s, %s)""",
-                    updated_order_items
-                )
-
-                self.connection.commit()
-                logger.info(f"Created {count} sample orders with {len(updated_order_items)} order items")
-
-        except Exception as e:
-            logger.error(f"Failed to seed orders: {e}")
-            raise
-
-    def seed_chat_sessions(self):
-        """Create sample chat sessions"""
-        try:
-            with self.connection.cursor() as cursor:
-                # Check if chat sessions already exist
-                cursor.execute("SELECT COUNT(*) FROM chat_sessions")
-                existing_count = cursor.fetchone()[0]
-
-                if existing_count > 0:
-                    logger.info(f"Found {existing_count} existing chat sessions, skipping")
-                    return
-
-                # Get user IDs
-                cursor.execute("SELECT id, username FROM users")
-                users = cursor.fetchall()
-
-                sample_sessions = [
-                    {
-                        'title': 'Sales Analysis Q4 2024',
-                        'messages': [
-                            ('user', 'Show me total sales for Q4 2024'),
-                            ('assistant', 'I\'ll analyze the Q4 2024 sales data for you.'),
-                            ('user', 'What were the top 5 products by revenue?'),
-                            ('assistant', 'Based on the data, here are the top 5 products by revenue in Q4 2024...')
-                        ]
-                    },
-                    {
-                        'title': 'Customer Demographics',
-                        'messages': [
-                            ('user', 'Can you analyze our customer demographics?'),
-                            ('assistant', 'I\'ll provide a comprehensive analysis of your customer demographics.'),
-                            ('user', 'Which cities have the most customers?'),
-                            ('assistant', 'Here\'s the breakdown of customers by city...')
-                        ]
-                    },
-                    {
-                        'title': 'Monthly Revenue Trends',
-                        'messages': [
-                            ('user', 'Show me monthly revenue trends for this year'),
-                            ('assistant', 'I\'ll create a visualization of monthly revenue trends.'),
-                        ]
-                    }
-                ]
-
-                for user_id, username in users:
-                    if username in ['admin', 'analyst']:  # Only create sessions for active users
-                        for session_data in sample_sessions:
-                            session_id = str(uuid.uuid4())
-
-                            # Insert chat session
-                            cursor.execute(
-                                """INSERT INTO chat_sessions (id, user_id, title) 
-                                   VALUES (%s, %s, %s)""",
-                                (session_id, user_id, session_data['title'])
-                            )
-
-                            # Insert messages
-                            for message_type, content in session_data['messages']:
-                                cursor.execute(
-                                    """INSERT INTO chat_messages (session_id, user_id, message_type, content) 
-                                       VALUES (%s, %s, %s, %s)""",
-                                    (session_id, user_id, message_type, content)
-                                )
-
-                self.connection.commit()
-                logger.info("Created sample chat sessions")
-
-        except Exception as e:
-            logger.error(f"Failed to seed chat sessions: {e}")
-            raise
-
-    def seed_query_logs(self):
-        """Create sample query logs for analytics"""
-        try:
-            with self.connection.cursor() as cursor:
-                # Check if query logs already exist
-                cursor.execute("SELECT COUNT(*) FROM query_logs")
-                existing_count = cursor.fetchone()[0]
-
-                if existing_count > 0:
-                    logger.info(f"Found {existing_count} existing query logs, skipping")
-                    return
-
-                # Get user IDs
-                cursor.execute("SELECT id FROM users WHERE role IN ('admin', 'analyst')")
-                user_ids = [row[0] for row in cursor.fetchall()]
-
-                if not user_ids:
-                    logger.warning("No admin/analyst users found for query logs")
-                    return
-
-                sample_queries = [
-                    {
-                        'query_text': 'Show me sales by month',
-                        'executed_sql': 'SELECT MONTH(order_date) as month, SUM(total_amount) as sales FROM orders GROUP BY MONTH(order_date)',
-                        'query_type': 'natural',
-                        'execution_time': 0.25,
-                        'row_count': 12,
-                        'status': 'success'
-                    },
-                    {
-                        'query_text': 'Top customers by revenue',
-                        'executed_sql': 'SELECT c.name, SUM(o.total_amount) as revenue FROM customers c JOIN orders o ON c.id = o.customer_id GROUP BY c.id ORDER BY revenue DESC LIMIT 10',
-                        'query_type': 'natural',
-                        'execution_time': 0.45,
-                        'row_count': 10,
-                        'status': 'success'
-                    },
-                    {
-                        'query_text': 'SELECT * FROM users',
-                        'query_type': 'sql',
-                        'execution_time': None,
-                        'row_count': None,
-                        'status': 'blocked',
-                        'error_message': 'Access to users table is not permitted'
-                    }
-                ]
-
-                logs = []
-                for _ in range(50):  # Create 50 sample logs
-                    query = random.choice(sample_queries)
-                    user_id = random.choice(user_ids)
-                    created_at = fake.date_time_between(start_date='-30d', end_date='now')
-
-                    logs.append((
-                        user_id,
-                        None,  # session_id
-                        query['query_text'],
-                        query['query_type'],
-                        query.get('executed_sql'),
-                        query.get('execution_time'),
-                        query.get('row_count'),
-                        query['status'],
-                        query.get('error_message'),
-                        created_at
-                    ))
-
-                cursor.executemany(
-                    """INSERT INTO query_logs (user_id, session_id, query_text, query_type, 
-                                             executed_sql, execution_time, row_count, status, 
-                                             error_message, created_at) 
-                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
-                    logs
-                )
-
-                self.connection.commit()
-                logger.info(f"Created {len(logs)} sample query logs")
-
-        except Exception as e:
-            logger.error(f"Failed to seed query logs: {e}")
-            raise
-
-    def close(self):
-        """Close database connection"""
-        if self.connection:
-            self.connection.close()
-
-
-def create_sample_csv():
-    """Create sample CSV file for data upload testing"""
     try:
-        data_dir = project_root / 'data'
-        data_dir.mkdir(exist_ok=True)
+        print("\n👤 Creating users...")
+        users = seed_users(db, security)
 
-        csv_file = data_dir / 'sample.csv'
+        print("\n📦 Creating products...")
+        products = seed_products(db)
 
-        if csv_file.exists():
-            logger.info("Sample CSV already exists")
-            return
+        print("\n🛒 Creating orders...")
+        orders = seed_orders(db, users, products)
 
-        # Generate sample data
-        with open(csv_file, 'w') as f:
-            f.write("date,product,category,sales,units,region\n")
+        print("\n📚 Creating knowledge base entries...")
+        knowledge = seed_knowledge_base(db, users)
 
-            products = ['ProductA', 'ProductB', 'ProductC', 'ProductD', 'ProductE']
-            categories = ['Electronics', 'Clothing', 'Home']
-            regions = ['North', 'South', 'East', 'West']
+        db.commit()
 
-            for i in range(100):
-                date = fake.date_between(start_date='-1y', end_date='today')
-                product = random.choice(products)
-                category = random.choice(categories)
-                sales = round(random.uniform(100, 5000), 2)
-                units = random.randint(1, 50)
-                region = random.choice(regions)
-
-                f.write(f"{date},{product},{category},{sales},{units},{region}\n")
-
-        logger.info(f"Created sample CSV file: {csv_file}")
+        print("\n✅ Database seeded successfully!")
+        print(f"  - Users: {len(users)}")
+        print(f"  - Products: {len(products)}")
+        print(f"  - Orders: {len(orders)}")
+        print(f"  - Knowledge entries: {len(knowledge)}")
 
     except Exception as e:
-        logger.error(f"Failed to create sample CSV: {e}")
+        db.rollback()
+        print(f"\n❌ Error seeding database: {str(e)}")
+        raise
+    finally:
+        db.close()
+
+
+def seed_users(db, security):
+    users = []
+
+    existing_users = db.query(User).count()
+    if existing_users > 0:
+        print(f"  ⚠️  Users already exist ({existing_users}), skipping...")
+        return db.query(User).all()
+
+    user_data = [
+        {"username": "admin", "email": "admin@chatbi.com", "password": "admin123"},
+        {"username": "demo", "email": "demo@chatbi.com", "password": "demo123"},
+        {"username": "alice", "email": "alice@example.com", "password": "alice123"},
+        {"username": "bob", "email": "bob@example.com", "password": "bob123"},
+        {"username": "charlie", "email": "charlie@example.com", "password": "charlie123"}
+    ]
+
+    for data in user_data:
+        user = User(
+            username=data["username"],
+            email=data["email"],
+            password_hash=security.hash_password(data["password"]),
+            api_key=security.generate_api_key(),
+            is_active=True
+        )
+        db.add(user)
+        users.append(user)
+        print(f"  ✅ Created user: {data['username']}")
+
+    return users
+
+
+def seed_products(db):
+    products = []
+
+    existing_products = db.query(Product).count()
+    if existing_products > 0:
+        print(f"  ⚠️  Products already exist ({existing_products}), skipping...")
+        return db.query(Product).all()
+
+    product_data = [
+        {"name": "Laptop Pro", "category": "Electronics", "price": 1299.99, "stock": 50},
+        {"name": "Wireless Mouse", "category": "Electronics", "price": 29.99, "stock": 200},
+        {"name": "Mechanical Keyboard", "category": "Electronics", "price": 99.99, "stock": 150},
+        {"name": "4K Monitor", "category": "Electronics", "price": 399.99, "stock": 75},
+        {"name": "USB-C Hub", "category": "Electronics", "price": 49.99, "stock": 300},
+        {"name": "Webcam HD", "category": "Electronics", "price": 79.99, "stock": 120},
+
+        {"name": "Ergonomic Chair", "category": "Furniture", "price": 299.99, "stock": 40},
+        {"name": "Standing Desk", "category": "Furniture", "price": 599.99, "stock": 25},
+        {"name": "Bookshelf", "category": "Furniture", "price": 149.99, "stock": 60},
+        {"name": "Filing Cabinet", "category": "Furniture", "price": 199.99, "stock": 35},
+
+        {"name": "Notebook Set", "category": "Stationery", "price": 14.99, "stock": 500},
+        {"name": "Premium Pens", "category": "Stationery", "price": 24.99, "stock": 300},
+        {"name": "Sticky Notes", "category": "Stationery", "price": 7.99, "stock": 800},
+        {"name": "Planner 2024", "category": "Stationery", "price": 19.99, "stock": 250},
+        {"name": "Highlighter Set", "category": "Stationery", "price": 9.99, "stock": 400},
+
+        {"name": "Office Suite", "category": "Software", "price": 149.99, "stock": 999},
+        {"name": "Antivirus Pro", "category": "Software", "price": 59.99, "stock": 999},
+        {"name": "Cloud Storage", "category": "Software", "price": 9.99, "stock": 999},
+        {"name": "Video Editor", "category": "Software", "price": 199.99, "stock": 999},
+        {"name": "Password Manager", "category": "Software", "price": 29.99, "stock": 999}
+    ]
+
+    for data in product_data:
+        product = Product(**data)
+        db.add(product)
+        products.append(product)
+        print(f"  ✅ Created product: {data['name']}")
+
+    return products
+
+
+def seed_orders(db, users, products):
+    orders = []
+
+    existing_orders = db.query(Order).count()
+    if existing_orders > 0:
+        print(f"  ⚠️  Orders already exist ({existing_orders}), skipping...")
+        return db.query(Order).all()
+
+    start_date = datetime.now() - timedelta(days=30)
+    statuses = ['completed', 'completed', 'completed', 'pending', 'cancelled']
+
+    for i in range(100):
+        user = random.choice(users[1:])
+        product = random.choice(products)
+
+        quantity = random.randint(1, 5)
+        amount = product.price * quantity
+
+        days_ago = random.randint(0, 30)
+        order_date = start_date + timedelta(days=days_ago)
+
+        order = Order(
+            user_id=user.id,
+            product_id=product.id,
+            quantity=quantity,
+            amount=amount,
+            status=random.choice(statuses),
+            created_at=order_date
+        )
+
+        db.add(order)
+        orders.append(order)
+
+        if (i + 1) % 20 == 0:
+            print(f"  ✅ Created {i + 1} orders...")
+
+    print(f"  ✅ Created total {len(orders)} orders")
+    return orders
+
+
+def seed_knowledge_base(db, users):
+    knowledge_entries = []
+
+    existing_kb = db.query(KnowledgeBase).count()
+    if existing_kb > 0:
+        print(f"  ⚠️  Knowledge base already has entries ({existing_kb}), skipping...")
+        return db.query(KnowledgeBase).all()
+
+    kb_data = [
+        {
+            "title": "SQL Query Best Practices",
+            "content": """
+Best practices for writing SQL queries in ChatBI:
+1. Always use SELECT statements for data retrieval
+2. Include WHERE clauses to filter data
+3. Use JOIN operations for combining tables
+4. Apply GROUP BY for aggregations
+5. Add ORDER BY for sorted results
+6. Use LIMIT to restrict result size
+7. Avoid SELECT * in production queries
+            """,
+            "category": "SQL",
+            "tags": ["sql", "best-practices", "query"]
+        },
+        {
+            "title": "Common Data Analysis Patterns",
+            "content": """
+Common patterns for data analysis:
+1. Time series analysis: Track metrics over time
+2. Cohort analysis: Group users by characteristics
+3. Funnel analysis: Track conversion steps
+4. Segmentation: Divide data into meaningful groups
+5. Correlation analysis: Find relationships between variables
+6. Anomaly detection: Identify outliers
+7. Trend analysis: Identify patterns and directions
+            """,
+            "category": "Analysis",
+            "tags": ["analysis", "patterns", "methodology"]
+        },
+        {
+            "title": "Chart Selection Guide",
+            "content": """
+Choosing the right chart for your data:
+- Line Chart: Time series data, trends over time
+- Bar Chart: Comparing categories, rankings
+- Pie Chart: Parts of a whole, percentages
+- Scatter Plot: Correlations, relationships
+- Heatmap: Matrix data, intensity visualization
+- Box Plot: Statistical distributions, quartiles
+- Histogram: Frequency distributions
+            """,
+            "category": "Visualization",
+            "tags": ["charts", "visualization", "guide"]
+        },
+        {
+            "title": "Sales Dashboard Queries",
+            "content": """
+Useful queries for sales analysis:
+
+1. Total Revenue:
+SELECT SUM(amount) as total_revenue FROM orders WHERE status = 'completed'
+
+2. Top Products:
+SELECT p.name, COUNT(o.id) as sales_count, SUM(o.amount) as revenue
+FROM products p
+JOIN orders o ON p.id = o.product_id
+GROUP BY p.id ORDER BY revenue DESC LIMIT 10
+
+3. Daily Sales:
+SELECT DATE(created_at) as date, COUNT(*) as orders, SUM(amount) as revenue
+FROM orders GROUP BY DATE(created_at) ORDER BY date DESC
+            """,
+            "category": "SQL",
+            "tags": ["sales", "queries", "dashboard"]
+        },
+        {
+            "title": "Data Quality Checks",
+            "content": """
+Essential data quality checks:
+1. Null value detection
+2. Duplicate record identification
+3. Data type validation
+4. Range and boundary checks
+5. Referential integrity validation
+6. Format consistency checks
+7. Business rule validation
+            """,
+            "category": "Analysis",
+            "tags": ["data-quality", "validation", "checks"]
+        }
+    ]
+
+    for data in kb_data:
+        entry = KnowledgeBase(
+            title=data["title"],
+            content=data["content"],
+            category=data["category"],
+            tags=data["tags"],
+            created_by=users[0].id
+        )
+
+        db.add(entry)
+        knowledge_entries.append(entry)
+        print(f"  ✅ Created knowledge: {data['title']}")
+
+    return knowledge_entries
+
+
+def generate_sample_csv():
+    print("\n📄 Generating sample CSV file...")
+
+    dates = pd.date_range(start='2024-01-01', periods=100, freq='D')
+
+    data = {
+        'date': dates,
+        'product': [random.choice(['Laptop', 'Mouse', 'Keyboard', 'Monitor', 'Chair']) for _ in range(100)],
+        'category': [random.choice(['Electronics', 'Furniture', 'Stationery']) for _ in range(100)],
+        'quantity': [random.randint(1, 20) for _ in range(100)],
+        'revenue': [round(random.uniform(50, 2000), 2) for _ in range(100)],
+        'region': [random.choice(['North', 'South', 'East', 'West']) for _ in range(100)],
+        'customer_satisfaction': [round(random.uniform(3.0, 5.0), 1) for _ in range(100)]
+    }
+
+    df = pd.DataFrame(data)
+
+    csv_path = Path("data/sample_generated.csv")
+    csv_path.parent.mkdir(exist_ok=True)
+    df.to_csv(csv_path, index=False)
+
+    print(f"  ✅ Generated sample CSV with {len(df)} rows")
+    print(f"  📍 Saved to: {csv_path}")
+
+    return df
 
 
 def main():
-    """Main seeding function"""
-    logger.info("Starting data seeding...")
+    import argparse
 
-    try:
-        config = Config()
-        seeder = DataSeeder(config)
-        seeder.connect()
+    parser = argparse.ArgumentParser(description="Seed ChatBI database")
+    parser.add_argument("--users-only", action="store_true", help="Only seed users")
+    parser.add_argument("--products-only", action="store_true", help="Only seed products")
+    parser.add_argument("--csv", action="store_true", help="Generate sample CSV")
+    parser.add_argument("--force", action="store_true", help="Force reseed (clear existing data)")
 
-        # Seed all data
-        seeder.seed_users()
-        seeder.seed_customers(100)
-        seeder.seed_products(50)
-        seeder.seed_orders(200)
-        seeder.seed_chat_sessions()
-        seeder.seed_query_logs()
+    args = parser.parse_args()
 
-        seeder.close()
+    print("""
+╔═══════════════════════════════════════╗
+║       ChatBI Database Seeder          ║
+╚═══════════════════════════════════════╝
+    """)
 
-        # Create sample files
-        create_sample_csv()
+    if args.csv:
+        generate_sample_csv()
+    else:
+        if args.force:
+            response = input("⚠️  This will clear existing data. Continue? (y/n): ")
+            if response.lower() != 'y':
+                print("Cancelled.")
+                return
 
-        logger.info("✅ Data seeding completed successfully!")
-        logger.info("\nDefault user accounts created:")
-        logger.info("- admin/admin123 (Administrator)")
-        logger.info("- analyst/analyst123 (Data Analyst)")
-        logger.info("- viewer/viewer123 (Viewer)")
-        logger.info("- demo/demo123 (Guest)")
-        logger.info("\n100 customers, 50 products, and 200 orders generated")
-        logger.info("Sample chat sessions and query logs created")
+        seed_database()
 
-    except Exception as e:
-        logger.error(f"Data seeding failed: {e}")
-        sys.exit(1)
+    print("\n✨ Done!")
 
 
 if __name__ == "__main__":
