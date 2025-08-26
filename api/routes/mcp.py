@@ -4,7 +4,7 @@ from typing import List
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 
-from core import MCPService
+from core import MCPService,DataService
 from utils import logger
 from ..database import get_db
 from ..schemas import (
@@ -15,7 +15,7 @@ from ..schemas import (
 
 router = APIRouter()
 mcp_service = MCPService()
-
+data_service = DataService()
 
 @router.post("/tools/execute", response_model=MCPToolResponse)
 async def execute_tool(request: MCPToolRequest, db: Session = Depends(get_db)):
@@ -28,7 +28,7 @@ async def execute_tool(request: MCPToolRequest, db: Session = Depends(get_db)):
 
         return MCPToolResponse(
             status='success',
-            result=result
+            result=data_service.clean_numpy_types(result)
         )
 
     except Exception as e:

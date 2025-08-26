@@ -225,15 +225,15 @@ class MCPTools:
                     'question': 'Natural language question'
                 }
             },
-            {
-                'name': 'create_chart',
-                'description': 'Create chart from data',
-                'parameters': {
-                    'data': 'Array of data objects',
-                    'chart_type': 'Chart type (auto, line, bar, pie, etc.)',
-                    'options': 'Optional chart configuration'
-                }
-            },
+            # {
+            #     'name': 'create_chart',
+            #     'description': 'Create chart from data',
+            #     'parameters': {
+            #         'data': 'Array of data objects',
+            #         'chart_type': 'Chart type (auto, line, bar, pie, etc.)',
+            #         'options': 'Optional chart configuration'
+            #     }
+            # },
             {
                 'name': 'analyze_data',
                 'description': 'Perform data analysis',
@@ -242,13 +242,13 @@ class MCPTools:
                     'analysis_type': 'Type of analysis (comprehensive, correlation, anomaly, trend)'
                 }
             },
-            {
-                'name': 'validate_sql',
-                'description': 'Validate SQL query for safety and syntax',
-                'parameters': {
-                    'sql_query': 'SQL query to validate'
-                }
-            },
+            # {
+            #     'name': 'validate_sql',
+            #     'description': 'Validate SQL query for safety and syntax',
+            #     'parameters': {
+            #         'sql_query': 'SQL query to validate'
+            #     }
+            # },
             {
                 'name': 'get_table_info',
                 'description': 'Get information about a database table',

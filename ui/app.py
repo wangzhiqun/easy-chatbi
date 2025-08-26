@@ -4,7 +4,7 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-
+import json
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from ui.utils import api_client, helpers
@@ -25,7 +25,6 @@ if 'query_result' not in st.session_state:
 if 'query_content' not in st.session_state:
     st.session_state.query_content = None
 
-
 def main():
     with st.sidebar:
         st.title("Easy-ChatBI")
@@ -33,7 +32,7 @@ def main():
         st.markdown("""
                         **Easy-ChatBI** 是一个开源的简易AI驱动数据分析平台
                         
-                        🔗 **GitHub:** [easy-chatbi](https://github.com/your-username/easy-chatbi) **♥️Star**
+                        🔗 **GitHub:** [easy-chatbi](https://github.com/wangzhiqun/easy-chatbi) **♥️Star**
                     """)
 
         st.markdown("---")
@@ -525,7 +524,7 @@ def show_tools_page():
 
     tool_type = st.selectbox(
         "Select Tool",
-        ["Database Schema", "MCP Tools", "Knowledge Base", "Cache Management", "Security"]
+        ["Database Schema", "MCP Tools"]
     )
 
     st.markdown("---")
@@ -534,12 +533,8 @@ def show_tools_page():
         show_schema_tool()
     elif tool_type == "MCP Tools":
         show_mcp_tools()
-    elif tool_type == "Knowledge Base":
-        show_knowledge_base()
-    elif tool_type == "Cache Management":
-        show_cache_management()
-    elif tool_type == "Security":
-        show_security_tools()
+    else:
+        pass
 
 
 def show_schema_tool():
@@ -620,10 +615,16 @@ def show_mcp_tools():
                 params['question'] = st.text_input("Natural Language Question")
 
             elif selected_tool == "analyze_data":
+                default_value = '[{"a": 1, "b": 2}, {"a": 3, "b": 4}]'
+                json_input = st.text_area("Data List (JSON)", value=default_value, height=80)
+                params['data'] = json.loads(json_input)
                 params['analysis_type'] = st.selectbox(
                     "Analysis Type",
                     ["comprehensive", "correlation", "anomaly", "trend"]
                 )
+
+            elif selected_tool == "get_table_info":
+                params['table_name']=st.text_input("Table Name")
 
             if st.button("▶️ Execute Tool"):
                 with st.spinner("Executing..."):
@@ -634,138 +635,6 @@ def show_mcp_tools():
                         st.json(result)
                     else:
                         st.error("Tool execution failed")
-
-
-def show_knowledge_base():
-    st.subheader("Knowledge Base")
-
-    tab1, tab2 = st.tabs(["Search", "Add Knowledge"])
-
-    with tab1:
-        query = st.text_input("Search Query")
-
-        if st.button("🔍 Search"):
-            if query:
-                with st.spinner("Searching..."):
-                    results = api_client.search_knowledge(query)
-
-                    if results:
-                        st.success(f"Found {len(results)} results")
-
-                        for result in results:
-                            with st.expander(f"📄 {result.get('title', 'Untitled')}"):
-                                st.write(result.get('content', ''))
-                                st.caption(f"Score: {result.get('score', 0):.3f}")
-                    else:
-                        st.info("No results found")
-
-    with tab2:
-        title = st.text_input("Title")
-        content = st.text_area("Content", height=200)
-        category = st.selectbox("Category", ["General", "SQL", "Analysis", "Visualization"])
-        tags = st.text_input("Tags (comma-separated)")
-
-        if st.button("💾 Add to Knowledge Base"):
-            if title and content:
-                success = api_client.add_knowledge(
-                    title,
-                    content,
-                    category,
-                    tags.split(',') if tags else []
-                )
-
-                if success:
-                    st.success("Knowledge added successfully!")
-                else:
-                    st.error("Failed to add knowledge")
-            else:
-                st.warning("Please provide title and content")
-
-
-def show_cache_management():
-    st.subheader("Cache Management")
-
-    stats = api_client.get_cache_stats()
-
-    if stats:
-        col1, col2, col3, col4 = st.columns(4)
-
-        with col1:
-            st.metric("Status", "🟢 Connected" if stats.get('connected') else "🔴 Disconnected")
-
-        with col2:
-            st.metric("Memory Usage", stats.get('used_memory', 'N/A'))
-
-        with col3:
-            st.metric("Hit Rate", f"{stats.get('hit_rate', 0):.1f}%")
-
-        with col4:
-            st.metric("Total Commands", stats.get('total_commands_processed', 0))
-
-    st.markdown("---")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if st.button("🗑️ Clear Query Cache"):
-            if api_client.clear_cache("queries"):
-                st.success("Query cache cleared")
-            else:
-                st.error("Failed to clear cache")
-
-    with col2:
-        if st.button("🗑️ Clear Analysis Cache"):
-            if api_client.clear_cache("analysis"):
-                st.success("Analysis cache cleared")
-            else:
-                st.error("Failed to clear cache")
-
-    with col3:
-        if st.button("🗑️ Clear All Cache"):
-            if api_client.clear_cache("all"):
-                st.success("All cache cleared")
-            else:
-                st.error("Failed to clear cache")
-
-
-def show_security_tools():
-    st.subheader("Security Tools")
-
-    tab1, tab2 = st.tabs(["SQL Validator", "API Key Management"])
-
-    with tab1:
-        st.write("Validate SQL queries for safety and syntax")
-
-        query = st.text_area("SQL Query to Validate", height=150)
-
-        if st.button("✅ Validate"):
-            if query:
-                result = api_client.validate_sql(query)
-
-                if result.get('valid'):
-                    st.success("✅ Query is valid and safe to execute")
-                else:
-                    st.error(f"❌ Invalid query: {result.get('error')}")
-
-                    st.info(
-                        "**Tips for safe queries:**\n"
-                        "- Use only SELECT statements\n"
-                        "- Avoid DROP, DELETE, TRUNCATE operations\n"
-                        "- Check for balanced quotes and parentheses\n"
-                        "- Limit query length to under 10000 characters"
-                    )
-
-    with tab2:
-        st.write("Generate and manage API keys")
-
-        if st.button("🔑 Generate New API Key"):
-            api_key = api_client.generate_api_key()
-            if api_key:
-                st.success("New API key generated!")
-                st.code(api_key)
-                st.warning("⚠️ Save this key securely. It won't be shown again.")
-            else:
-                st.error("Failed to generate API key")
 
 
 if __name__ == "__main__":
